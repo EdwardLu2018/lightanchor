@@ -1,4 +1,4 @@
-PROJECT_NAME     := ble_app_blinky_pca10040_s132
+PROJECT_NAME     := lightanchor
 TARGETS          := nrf52832_xxaa
 OUTPUT_DIRECTORY := _build
 
