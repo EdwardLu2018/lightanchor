@@ -113,8 +113,6 @@
 
 #define BLINK_LED       BLUE_LED
 
-#define UNIT_1_MS       1000
-
 BLE_LBS_DEF(m_lbs);                                                             /**< LED Button Service instance. */
 NRF_BLE_GATT_DEF(m_gatt);                                                       /**< GATT module instance. */
 NRF_BLE_QWR_DEF(m_qwr);                                                         /**< Context for the Queued Write module.*/
@@ -127,7 +125,7 @@ static uint8_t m_enc_advdata[BLE_GAP_ADV_SET_DATA_SIZE_MAX];                    
 static uint8_t m_enc_scan_response_data[BLE_GAP_ADV_SET_DATA_SIZE_MAX];         /**< Buffer for storing an encoded scan data. */
 
 uint8_t code            = 0xaf;
-uint8_t blink_period    = 66; // 15 ms
+uint16_t blink_period   = 1000 / 60;
 
 const nrf_drv_timer_t led_timer = NRF_DRV_TIMER_INSTANCE(1);
 
@@ -330,23 +328,25 @@ static void led_write_handler(uint16_t conn_handle, ble_lbs_t * p_lbs, uint8_t l
 }
 
 
+static uint8_t reverse(uint8_t n) {
+    uint8_t res = 0;
+    while (n > 0) {
+        res <<= 1;
+        if ((n & 1) == 1) {
+            res ^= 1;
+        }
+        n >>= 1;
+    }
+    return res;
+}
+
+
 static void code_write_handler(uint16_t conn_handle, code_service_t * p_lbs, uint8_t new_code) {
     nrf_drv_timer_pause(&led_timer);
     blink_led_off();
 
-    if (0 < new_code && new_code < 0xff) {
-        code = new_code;
-        nrf_drv_timer_resume(&led_timer);
-    }
-    else {
-        blink_led_off();
-        nrf_delay_ms(100);
-        blink_led_on();
-        nrf_delay_ms(100);
-        blink_led_off();
-        nrf_delay_ms(100);
-        blink_led_on();
-    }
+    code = reverse(new_code);
+    nrf_drv_timer_resume(&led_timer);
 }
 
 
@@ -650,48 +650,37 @@ static void idle_state_handle(void)
 
 static void led_timer_event_handler(nrf_timer_event_t event_type, void * p_context)
 {
-    static uint32_t tick_cntr   = 0;
-    static uint8_t bit_idx      = 0;
-    static uint8_t next_bit_idx = 1;
+    static uint32_t ticks       = 0;
+    static uint8_t code_idx     = 0;
+    static bool skip            = false;
 
-    uint8_t led_state, next_led_state;
+    bool led_on;
 
     switch(event_type)
     {
         case NRF_TIMER_EVENT_COMPARE0:
-            led_state      = !!(code & (1 << ((CODE_LEN - 1) - bit_idx)));
-            next_led_state = !!(code & (1 << ((CODE_LEN - 1) - next_bit_idx)));
+            led_on = !!(code & (1 << code_idx));
 
-            if (led_state == 1) {
-                // if next bit is a 0, turn led on for only half the time
-                if (led_state != next_led_state) {
-                    if (tick_cntr < blink_period / 2) {
-                        blink_led_on();
-                    }
-                    else {
-                        blink_led_off();
-                    }
-                }
-                else {
-                    blink_led_on();
-                }
+            if (led_on) {
+                blink_led_on();
             }
             else {
                 blink_led_off();
             }
 
-            ++tick_cntr;
-            if (tick_cntr == blink_period) {
-                tick_cntr = 0;
+            ++ticks;
+            if (skip && ticks == blink_period / 2) {
+                ticks = 0;
+                skip = false;
+            }
 
-                ++bit_idx;
-                ++next_bit_idx;
+            if (ticks == blink_period) {
+                ticks = 0;
 
-                if (bit_idx == CODE_LEN) {
-                    bit_idx = 0;
-                }
-                if (next_bit_idx == CODE_LEN) {
-                    next_bit_idx = 0;
+                ++code_idx;
+                if (code_idx == CODE_LEN) {
+                    code_idx = 0;
+                    skip = true;
                 }
             }
             break;
